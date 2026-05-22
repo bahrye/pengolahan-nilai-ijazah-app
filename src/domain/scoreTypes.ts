@@ -1,0 +1,8 @@
+export const SCORE_TYPE = {
+  UJIAN_MADRASAH: "UJIAN_MADRASAH",
+  UJIAN_PRAKTEK: "UJIAN_PRAKTEK",
+  PENGETAHUAN: "PENGETAHUAN",
+  KETERAMPILAN: "KETERAMPILAN",
+} as const;
+
+export type ScoreType = (typeof SCORE_TYPE)[keyof typeof SCORE_TYPE];

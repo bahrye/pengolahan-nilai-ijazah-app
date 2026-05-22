@@ -1,0 +1,591 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN_SEKOLAH
+  GURU
+  SISWA
+}
+
+enum SchoolLevel {
+  MI
+  MTS
+  MA
+  /// PAUD & setara
+  KB
+  TK
+  RA
+  TPA
+  /// Dasar (Kemdikbud & luar biasa)
+  SD
+  SDLB
+  /// Menengah pertama
+  SMP
+  SMPLB
+  /// Menengah atas & kejuruan
+  SMA
+  SMALB
+  SMK
+  /// Lain-lain
+  SLB
+  PKBM
+}
+
+enum KabupatenType {
+  Kabupaten
+  Kota
+}
+
+enum KelurahanType {
+  Kelurahan
+  Desa
+}
+
+/// Kapan guru boleh mengisi / menyimpan / mengirim nilai ujian.
+enum ExamInputPolicy {
+  /// Guru tidak bisa input; simpan & kirim dinonaktifkan.
+  LOCKED
+  /// Guru bebas input kapan saja.
+  OPEN
+  /// Hanya dalam rentang waktu yang ditetapkan admin.
+  LIMITED
+}
+
+/// Menentukan cara merata-ratakan aspek rapor per semester saat rekap ijazah.
+enum RaporAspectMode {
+  PENGETAHUAN_ONLY
+  KETERAMPILAN_ONLY
+  BOTH
+}
+
+/// Sumber berkas SKL untuk siswa: dibuat sistem (PDF) atau diunggah per NISN di Google Drive.
+enum SklModelSource {
+  SYSTEM
+  GOOGLE_DRIVE
+}
+
+/// Kapan nilai rekap ijazah boleh tampil utuh untuk siswa (setelah waktu pengumuman).
+enum IjazahRekapVisibility {
+  /// Nilai terbuka otomatis saat waktu pengumuman tercapai (tanpa membuka menu Pengumuman).
+  AT_ANNOUNCEMENT_TIME
+  /// Setelah waktu pengumuman: nilai terbuka hanya jika siswa sudah mengecek Pengumuman.
+  AFTER_CHECK_ANNOUNCEMENT
+}
+
+/// Alur persetujuan tugas tambahan guru antarsekolah (guru induk di sekolah satminkal).
+enum GuruTugasTambahanStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  /// bcrypt hash untuk login email/sandi — akun OAuth-only bisa null.
+  passwordHash  String?
+  role          UserRole  @default(ADMIN_SEKOLAH)
+  schoolId      String?
+  /// Untuk GURU: konteks sekolah aktif di sesi (harus punya baris `Teacher` di sekolah ini). Kosong = gunakan `schoolId`.
+  activeSchoolId String?
+  isActive      Boolean   @default(true)
+  accounts      Account[]
+  sessions      Session[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  school       School?  @relation("UserHomeSchool", fields: [schoolId], references: [id], onDelete: SetNull)
+  activeSchool School?  @relation("UserActiveSchoolContext", fields: [activeSchoolId], references: [id], onDelete: SetNull)
+  teachers     Teacher[]
+  student      Student?
+  tugasTambahanInitiated GuruTugasTambahanRequest[] @relation("TugasInitiatedBy")
+  tugasTambahanDecided   GuruTugasTambahanRequest[] @relation("TugasDecidedBy")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/// Antrian registrasi admin sekolah (verifikasi email OTP) sebelum User + School dibuat.
+model PendingAdminRegistration {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  otpHash   String
+  payload   Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+/// Tanggal pada dokumen cetak nilai: otomatis saat kirim atau tanggal manual seragam.
+enum PrintDateMode {
+  AUTO_ON_SUBMIT
+  MANUAL
+}
+
+model School {
+  id                 String           @id @default(cuid())
+  schoolCode         String           @unique @default(cuid())
+  jenjang            SchoolLevel?
+  namaSekolah        String?
+  npsn               String?
+  nsm                String?
+  alamat             String?
+  provinsi           String?
+  tipeKabupaten      KabupatenType    @default(Kabupaten)
+  kabupaten          String?
+  kecamatan          String?
+  tipeKelurahan      KelurahanType    @default(Kelurahan)
+  kelurahan          String?
+  kodePos            String?
+  telepon            String?
+  email              String?
+  website            String?
+  namaKepsek         String?
+  nipKepsek          String?
+  tahunLulusGlobal   Int?
+  raporSemesterCount Int              @default(5)
+  /// Waktu mulai pengumuman kelulusan (nilai ijazah di rekap siswa mengikuti mode visibilitas).
+  graduationAnnouncementAt DateTime?
+  ijazahRekapVisibility      IjazahRekapVisibility @default(AFTER_CHECK_ANNOUNCEMENT)
+  /// Kebijakan input & kirim nilai ujian untuk akun guru.
+  examInputPolicy        ExamInputPolicy @default(OPEN)
+  examInputWindowStart   DateTime?
+  examInputWindowEnd     DateTime?
+  /// URL gambar kop surat (unggah Cloudinary).
+  printLetterheadUrl       String?
+  /// `public_id` Cloudinary untuk ganti/hapus aset.
+  printLetterheadPublicId  String?
+  /// Tempat pengetanggalan pada cetakan (mis. kota untuk "..., di ...").
+  printSignaturePlace      String?
+  printDateMode            PrintDateMode @default(AUTO_ON_SUBMIT)
+  /// Dipakai jika `printDateMode` = MANUAL (tanggal seragam untuk semua guru).
+  printManualDate          DateTime?
+  /// Satuan satminkal: boleh kelola akun guru (email, reset sandi, tambah guru). Non-satminkal hanya tugas tambahan.
+  isSatminkal        Boolean          @default(true)
+  /// Sekolah dinonaktifkan superadmin tidak tampil di daftar utama.
+  isActive           Boolean          @default(true)
+  /// Model SKL: PDF otomatis dari sistem atau berkas NISN.pdf di Google Drive.
+  sklModelSource        SklModelSource        @default(GOOGLE_DRIVE)
+  /// Mengaktifkan fitur SKL. Jika false, SKL disembunyikan.
+  sklActive             Boolean               @default(false)
+  /// Folder Google Drive berisi berkas SKL per siswa (nama file: NISN.pdf). Diakses lewat service account (lihat .env.example).
+  sklDriveFolderId      String?
+  /// Kapan siswa boleh mengunduh SKL (waktu pengumuman + mode; logika serupa tampilan rekap ijazah).
+  sklDownloadVisibility IjazahRekapVisibility @default(AFTER_CHECK_ANNOUNCEMENT)
+  /// Tanggal pengetanggalan SKL sistem (tempat + tanggal pada TTD).
+  sklIssuedAt          DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  subscription          SchoolSubscription?
+  subscriptionPayments  SubscriptionPayment[]
+
+  users         User[] @relation("UserHomeSchool")
+  activeContextUsers User[] @relation("UserActiveSchoolContext")
+  students      Student[]
+  subjects      Subject[]
+  gradingConfig SchoolGradingConfig?
+  grades        GradeEntry[]
+  academicYears AcademicYear[]
+  classRooms    ClassRoom[]
+  semesters     Semester[]
+  teachers           Teacher[]
+  teachingAssignments TeachingAssignment[]
+  examScoreLocks      ExamScoreLock[]
+  raporScoreLocks     RaporScoreLock[]
+  guruTugasTambahanHost GuruTugasTambahanRequest[] @relation("TugasHostSchool")
+}
+
+enum SubscriptionPlanPackage {
+  MONTHS_3
+  MONTHS_6
+  MONTHS_9
+}
+
+enum SubscriptionTransferVia {
+  SHOPEEPAY
+  SEABANK
+}
+
+enum SubscriptionPayerCategory {
+  EWALLET
+  BANK
+}
+
+enum SubscriptionPaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Status langganan & kuota paket gratis per sekolah.
+model SchoolSubscription {
+  id                 String    @id @default(cuid())
+  schoolId           String    @unique
+  /// Langganan berbayar aktif sampai tanggal ini (inklusif).
+  subscriptionEndsAt DateTime?
+  /// Paket aktif untuk kuota siswa (diperbarui saat pembayaran disetujui).
+  activePackage           SubscriptionPlanPackage?
+  /// Batas kumulatif penambahan siswa (naik tiap paket 3/6 bulan disetujui).
+  studentQuotaAllowance   Int       @default(150)
+  /// Kumulatif jumlah siswa pernah ditambahkan (dibatasi menurut paket).
+  studentAddsUsed         Int       @default(0)
+  /// Tanggal (YYYY-MM-DD) untuk penghitungan batas 3 jam/hari setelah masa trial.
+  freeUsageDate      String?
+  freeUsageSeconds   Int       @default(0)
+  lastAccessAt       DateTime?
+  /// Trial premium 3 hari (sekali per sekolah); diisi saat admin mengaktifkan.
+  premiumTrialUsedAt DateTime?
+  premiumTrialEndsAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  school   School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  periods  SchoolSubscriptionPeriod[]
+}
+
+/// Satu segmen masa langganan (bisa ditumpuk; paket 9 bulan terpisah dari 3/6).
+model SchoolSubscriptionPeriod {
+  id        String                  @id @default(cuid())
+  schoolId  String
+  package   SubscriptionPlanPackage
+  startsAt  DateTime
+  endsAt    DateTime
+  paymentId String?                 @unique
+  createdAt DateTime                @default(now())
+
+  subscription SchoolSubscription @relation(fields: [schoolId], references: [schoolId], onDelete: Cascade)
+  payment      SubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, startsAt])
+  @@index([schoolId, endsAt])
+}
+
+/// Pengajuan pembayaran langganan (verifikasi superadmin).
+model SubscriptionPayment {
+  id                  String                    @id @default(cuid())
+  schoolId            String
+  package             SubscriptionPlanPackage
+  amountRp            Int
+  payerCategory       SubscriptionPayerCategory
+  payerProvider       String
+  transferVia         SubscriptionTransferVia
+  proofUrl            String
+  proofPublicId       String?
+  status              SubscriptionPaymentStatus @default(PENDING)
+  schoolNameSnapshot  String
+  npsnSnapshot        String?
+  submittedByUserId   String
+  reviewedAt          DateTime?
+  reviewedByUserId    String?
+  rejectNote          String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  period SchoolSubscriptionPeriod?
+
+  @@index([schoolId, status])
+  @@index([status, createdAt])
+}
+
+/// Satu tahun ajaran per sekolah (mis. 2025/2026).
+/// Invariant aplikasi setelah ada data: tepat satu baris aktif (`isActive = true`) per `schoolId`.
+/// DB menyokongnya dengan indeks parsial tunggal aktif/sekolah (lihat migrasi).
+model AcademicYear {
+  id        String   @id @default(cuid())
+  schoolId  String
+  label     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school     School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classRooms ClassRoom[]
+  semesters  Semester[]
+
+  @@unique([schoolId, label])
+  @@index([schoolId])
+}
+
+/// Semester terikat tahun ajaran; internalKey menyelaraskan dengan GradeEntry.semesterKey.
+model Semester {
+  id              String   @id @default(cuid())
+  schoolId        String
+  academicYearId  String
+  internalKey     String
+  label           String
+  orderNo         Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+
+  @@unique([academicYearId, internalKey])
+  @@index([schoolId, academicYearId])
+}
+
+/// Kelas dalam satu tahun ajaran.
+model ClassRoom {
+  id                 String   @id @default(cuid())
+  schoolId           String
+  academicYearId     String
+  name               String
+  homeroomTeacherId  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  school           School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear     AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  homeroomTeacher  Teacher?     @relation("HomeroomTeacher", fields: [homeroomTeacherId], references: [id], onDelete: SetNull)
+  students         Student[]
+  assignments      TeachingAssignment[]
+
+  @@unique([academicYearId, name])
+  @@index([schoolId])
+}
+
+model Teacher {
+  id                String   @id @default(cuid())
+  schoolId          String
+  userId            String
+  nama              String
+  nip               String?
+  lastPlainPassword String?
+  /// False setelah guru mengganti sandi sendiri — kartu login PIN dinonaktifkan sampai admin reset.
+  usesDefaultLoginPin Boolean @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  school          School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments     TeachingAssignment[]
+  homeroomClasses ClassRoom[]          @relation("HomeroomTeacher")
+  tugasTambahanHomeRequests GuruTugasTambahanRequest[] @relation("TugasHomeTeacher")
+
+  @@unique([schoolId, userId])
+  @@index([schoolId])
+  @@index([userId])
+}
+
+/// Permohonan tugas tambahan: guru induk (`homeTeacher`) di sekolah satminkal, bekerja juga di `hostSchool`.
+model GuruTugasTambahanRequest {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  homeTeacherId String
+  hostSchoolId  String
+
+  initiatedByUserId   String
+  initiatedBySchoolId String
+
+  status GuruTugasTambahanStatus @default(PENDING)
+
+  decidedByUserId   String?
+  decidedBySchoolId String?
+  decidedAt         DateTime?
+  rejectReason      String? @db.Text
+
+  homeTeacher Teacher @relation("TugasHomeTeacher", fields: [homeTeacherId], references: [id], onDelete: Cascade)
+  hostSchool  School  @relation("TugasHostSchool", fields: [hostSchoolId], references: [id], onDelete: Cascade)
+  initiatedBy User    @relation("TugasInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: Cascade)
+  decidedBy   User?   @relation("TugasDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, hostSchoolId])
+  @@index([status, initiatedBySchoolId])
+  @@index([homeTeacherId, hostSchoolId])
+}
+
+/// Satu guru + satu mapel + satu kelas.
+model TeachingAssignment {
+  id          String   @id @default(cuid())
+  schoolId    String
+  teacherId   String
+  subjectId   String
+  classRoomId String
+  createdAt   DateTime @default(now())
+
+  school    School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacher   Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subject   Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  classRoom ClassRoom @relation(fields: [classRoomId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, subjectId, classRoomId])
+  @@index([schoolId, teacherId])
+}
+
+model Student {
+  id                  String    @id @default(cuid())
+  schoolId            String
+  classRoomId         String?
+  userId              String?   @unique
+  nisn                String
+  nis                 String?
+  nomorUjian          String?
+  name                String
+  gender              String?
+  birthPlace          String?
+  birthDate           DateTime?
+  /// Nomor surat SKL per siswa (diimpor / diisi admin).
+  sklLetterNumber     String?
+  /// Nama orang tua/wali untuk SKL.
+  parentGuardianName  String?
+  address             String?
+  phone               String?
+  emailSiswa          String?
+  tahunMasuk          Int?
+  tahunLulus          Int?
+  tampilkanTranskrip  Boolean   @default(false)
+  isActive            Boolean   @default(true)
+  className           String?
+  ruangUjian          String?
+  rowHint             Int?
+  /// Terisi saat siswa menandai sudah membaca pengumuman kelulusan (mode AFTER_CHECK_ANNOUNCEMENT).
+  graduationAnnouncementAckAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  school       School?            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classRoom    ClassRoom?         @relation(fields: [classRoomId], references: [id], onDelete: SetNull)
+  user         User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  grades       GradeEntry[]
+
+  @@unique([schoolId, nisn])
+}
+
+model Subject {
+  id             String   @id @default(cuid())
+  schoolId       String
+  code           String
+  name           String
+  kelompok       String?
+  jenisUjian     String   @default("Ujian Madrasah")
+  orderNo        Int      @default(0)
+  /// 0 = gunakan raporSemesterCount sekolah; >0 = jumlah semester aktif mapel ini.
+  semesterCount  Int      @default(0)
+
+  school          School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  grades          GradeEntry[]
+  assignments     TeachingAssignment[]
+  examScoreLocks  ExamScoreLock[]
+  raporScoreLocks RaporScoreLock[]
+
+  @@unique([schoolId, code])
+}
+
+model SchoolGradingConfig {
+  id               String           @id @default(cuid())
+  schoolId         String           @unique
+  bobotUjian       Decimal          @db.Decimal(5, 2) @default(40)
+  bobotRapor       Decimal          @db.Decimal(5, 2) @default(60)
+  kkm              Decimal          @db.Decimal(5, 2) @default(75)
+  raporAspectMode  RaporAspectMode  @default(BOTH)
+
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+}
+
+model GradeEntry {
+  id          String   @id @default(cuid())
+  schoolId    String
+  studentId   String
+  subjectId   String
+  semesterKey String
+  scoreType   String
+
+  score     Decimal  @db.Decimal(5, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, studentId, subjectId, semesterKey, scoreType])
+  @@index([schoolId, studentId, semesterKey])
+  @@index([schoolId, semesterKey, scoreType])
+  @@index([schoolId, scoreType])
+}
+
+/// Kunci nilai ujian per mapel — setelah "dikirim" tidak bisa diedit kecuali dibatalkan.
+model ExamScoreLock {
+  id          String   @id @default(cuid())
+  schoolId    String
+  subjectId   String
+  lockedBy    String
+  lockedAt    DateTime @default(now())
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, subjectId])
+  @@index([schoolId])
+}
+
+/// Mode maintenance global (satu baris id = "global"); memblokir halaman login hingga waktu selesai.
+model PlatformMaintenance {
+  id                 String    @id @default("global")
+  isActive           Boolean   @default(false)
+  endsAt             DateTime?
+  isRegistrationOpen Boolean   @default(true)
+  updatedAt          DateTime  @updatedAt
+}
+
+/// Kunci nilai rapor per mapel per semester — setelah dikunci tidak bisa diedit kecuali dibuka.
+model RaporScoreLock {
+  id          String   @id @default(cuid())
+  schoolId    String
+  subjectId   String
+  semesterKey String
+  lockedBy    String
+  lockedAt    DateTime @default(now())
+
+  school  School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, subjectId, semesterKey])
+  @@index([schoolId, semesterKey])
+}
