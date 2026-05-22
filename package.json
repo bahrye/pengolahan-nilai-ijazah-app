@@ -15,11 +15,7 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
-    "@neondatabase/serverless": "^1.1.0",
-    "@opennextjs/cloudflare": "^1.19.11",
-    "@prisma/adapter-neon": "^7.8.0",
     "@prisma/client": "^6.19.3",
-    "@types/ws": "^8.18.1",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
     "cloudinary": "^2.10.0",
@@ -38,8 +34,6 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "resend": "^6.12.3",
-    "wrangler": "^4.94.0",
-    "ws": "^8.20.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
