@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+
 
 import { NextResponse } from "next/server";
 
@@ -17,8 +17,12 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function hashKey(part: string): string {
-  return createHash("sha256").update(part, "utf8").digest("hex").slice(0, 24);
+function hashKey(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 export function rateLimit429Response(retryAfterSec: number): NextResponse {
