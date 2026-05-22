@@ -5,8 +5,6 @@ import NextAuth from "next-auth";
 import { authConfig, type AppUserRole } from "@/auth.config";
 import { evaluateApiRouteAccess } from "@/lib/api-route-policy";
 
-export const runtime = "edge";
-
 /** Edge-only: jangan impor `@/auth` (Prisma/bcrypt) — batas bundle Vercel Edge ~1 MB. */
 const { auth } = NextAuth(authConfig);
 
