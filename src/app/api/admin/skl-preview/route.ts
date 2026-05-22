@@ -5,7 +5,7 @@ import { buildSystemSklPdfPreviewForStudent } from "@/lib/skl/load-skl-for-stude
 import { prisma } from "@/lib/prisma";
 import { studentWhereParticipatingActiveYear } from "@/server/active-academic-year-scope";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 /** Pratinjau PDF SKL sistem untuk admin sekolah. */
 export async function GET(req: Request) {

@@ -10,7 +10,7 @@ import { buildSystemSklPdfForStudentUser } from "@/lib/skl/load-skl-for-student"
 import { getStudentSklDownloadBlockReason } from "@/lib/student-ijazah-visibility";
 import { prisma } from "@/lib/prisma";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 /**
  * Unduh PDF SKL siswa yang sedang login — model sistem (PDF otomatis) atau Google Drive (NISN.pdf).

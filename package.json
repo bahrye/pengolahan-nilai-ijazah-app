@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
-    "pages:build": "prisma generate && npx @cloudflare/next-on-pages",
+    "build": "prisma generate && npx opennextjs-cloudflare build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -16,8 +15,8 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",
-    "@cloudflare/next-on-pages": "^1.13.16",
     "@neondatabase/serverless": "^1.1.0",
+    "@opennextjs/cloudflare": "^1.19.11",
     "@prisma/adapter-neon": "^7.8.0",
     "@prisma/client": "^6.19.3",
     "@types/ws": "^8.18.1",
